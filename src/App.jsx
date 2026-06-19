@@ -3,6 +3,7 @@ import './styles.css'
 
 const SHANE_PIN = '4522'
 const ADMIN_PIN = '2205'
+const APP_VERSION = 'v0.2'
 
 const initialRewards = [
   { id: 'hugs', icon: '🤗', name: 'Hugs', balance: 4 },
@@ -81,6 +82,7 @@ function App() {
           <div className="logo-bubble">💖</div>
           <h1>Googly Bank</h1>
           <p className="subtitle">Private banking for very important cuties.</p>
+          <p className="version">{APP_VERSION}</p>
 
           <form onSubmit={handleLogin} className="pin-form">
             <label htmlFor="pin">Enter PIN</label>
