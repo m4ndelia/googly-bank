@@ -1,76 +1,138 @@
 import { useEffect, useMemo, useState } from 'react'
 import './styles.css'
+import { supabase } from './lib/supabase'
 
 const SHANE_PIN = '4522'
 const ADMIN_PIN = '2205'
-const APP_VERSION = 'v0.5'
+const APP_VERSION = 'v0.6'
 
-const today = '2026-06-19'
-
-const startingRewards = [
-  { id: 'hugs', icon: '🤗', name: 'Hugs', balance: 4 },
-  { id: 'head-massage', icon: '💆', name: 'Head Massage', balance: 2 },
-  { id: 'coffee', icon: '☕', name: 'Coffee in Bed', balance: 1 },
-  { id: 'foot-rub', icon: '🦶', name: 'Foot Rub', balance: 1 },
-  { id: 'snuggle', icon: '🥰', name: 'Snuggle', balance: 3 },
-]
-
-const startingHistory = [
-  {
-    id: 1,
-    type: 'approved',
-    rewardName: 'Hugs',
-    icon: '🤗',
-    quantity: 2,
-    date: '2026-05-05',
-    actor: 'Rohan',
-    note: 'Because you deserve extra squeezes.',
-  },
-  {
-    id: 2,
-    type: 'delivered',
-    rewardName: 'Coffee in Bed',
-    icon: '☕',
-    quantity: 1,
-    date: '2026-05-11',
-    actor: 'Rohan',
-    note: 'Sunday morning delivery.',
-  },
-  {
-    id: 3,
-    type: 'approved',
-    rewardName: 'Snuggle',
-    icon: '🥰',
-    quantity: 1,
-    date: '2026-06-04',
-    actor: 'Rohan',
-    note: 'Because you were very cute.',
-  },
-  {
-    id: 4,
-    type: 'delivered',
-    rewardName: 'Foot Rub',
-    icon: '🦶',
-    quantity: 1,
-    date: '2026-06-12',
-    actor: 'Rohan',
-    note: 'Delivered with excellence.',
-  },
-]
+function getTodayString() {
+  return new Date().toISOString().slice(0, 10)
+}
 
 function App() {
   const [pin, setPin] = useState('')
   const [userType, setUserType] = useState(null)
   const [activeTab, setActiveTab] = useState('home')
-  const [rewards, setRewards] = useState(startingRewards)
+  const [rewards, setRewards] = useState([])
   const [pendingApprovals, setPendingApprovals] = useState([])
   const [pendingDeliveries, setPendingDeliveries] = useState([])
-  const [history, setHistory] = useState(startingHistory)
-  const [historyMonth, setHistoryMonth] = useState('2026-06')
+  const [history, setHistory] = useState([])
+  const [historyMonth, setHistoryMonth] = useState(getTodayString().slice(0, 7))
+  const [isLoading, setIsLoading] = useState(true)
+
+  async function loadBankData() {
+    setIsLoading(true)
+
+    const [rewardTypesResult, rewardRequestsResult, redemptionRequestsResult, ledgerResult] = await Promise.all([
+      supabase
+        .from('reward_types')
+        .select('*')
+        .eq('active', true)
+        .order('name', { ascending: true }),
+      supabase
+        .from('reward_requests')
+        .select('*, reward_types(name, emoji)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('redemption_requests')
+        .select('*, reward_types(name, emoji)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('ledger_entries')
+        .select('*, reward_types(name, emoji)')
+        .order('created_at', { ascending: false }),
+    ])
+
+    const firstError =
+      rewardTypesResult.error ||
+      rewardRequestsResult.error ||
+      redemptionRequestsResult.error ||
+      ledgerResult.error
+
+    if (firstError) {
+      console.error('Error loading Googly Bank data:', firstError)
+      alert('Could not load Googly Bank data. Check the console.')
+      setIsLoading(false)
+      return
+    }
+
+    const rewardTypes = rewardTypesResult.data || []
+    const rewardRequests = rewardRequestsResult.data || []
+    const redemptionRequests = redemptionRequestsResult.data || []
+    const ledgerEntries = ledgerResult.data || []
+
+    const ledgerBalances = ledgerEntries.reduce((totals, entry) => {
+      if (!entry.reward_type_id) return totals
+      totals[entry.reward_type_id] = (totals[entry.reward_type_id] || 0) + Number(entry.balance_delta || 0)
+      return totals
+    }, {})
+
+    const reservedBalances = redemptionRequests.reduce((totals, request) => {
+      if (!request.reward_type_id) return totals
+      totals[request.reward_type_id] = (totals[request.reward_type_id] || 0) + Number(request.quantity || 0)
+      return totals
+    }, {})
+
+    const formattedRewards = rewardTypes.map((reward) => {
+      const earnedBalance = ledgerBalances[reward.id] || 0
+      const reservedBalance = reservedBalances[reward.id] || 0
+
+      return {
+        id: reward.id,
+        icon: reward.emoji,
+        name: reward.name,
+        balance: Math.max(0, earnedBalance - reservedBalance),
+      }
+    })
+
+    const formattedApprovals = rewardRequests.map((request) => ({
+      id: request.id,
+      rewardId: request.reward_type_id,
+      rewardName: request.reward_types?.name || 'Reward',
+      icon: request.reward_types?.emoji || '♡',
+      quantity: Number(request.quantity || 0),
+      reason: request.reason,
+      date: request.created_at.slice(0, 10),
+    }))
+
+    const formattedDeliveries = redemptionRequests.map((request) => ({
+      id: request.id,
+      rewardId: request.reward_type_id,
+      rewardName: request.reward_types?.name || 'Reward',
+      icon: request.reward_types?.emoji || '♡',
+      quantity: Number(request.quantity || 0),
+      note: request.note,
+      date: request.created_at.slice(0, 10),
+    }))
+
+    const formattedHistory = ledgerEntries.map((entry) => ({
+      id: entry.id,
+      type: mapLedgerTypeToHistoryType(entry.entry_type),
+      rewardName: entry.reward_types?.name || 'Reward',
+      icon: entry.reward_types?.emoji || '♡',
+      quantity: Number(entry.quantity || 0),
+      date: entry.created_at.slice(0, 10),
+      actor: formatActor(entry.actor),
+      note: entry.note,
+    }))
+
+    setRewards(formattedRewards)
+    setPendingApprovals(formattedApprovals)
+    setPendingDeliveries(formattedDeliveries)
+    setHistory(formattedHistory)
+    setIsLoading(false)
+  }
 
   useEffect(() => {
-  window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
-}, [activeTab, userType])
+    loadBankData()
+  }, [])
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+  }, [activeTab, userType])
 
   function handleLogin(event) {
     event.preventDefault()
@@ -97,121 +159,236 @@ function App() {
     setActiveTab('home')
   }
 
-  function addPendingApproval(rewardId, quantity, reason) {
+  async function addPendingApproval(rewardId, quantity, reason) {
     const reward = rewards.find((item) => item.id === rewardId)
+    if (!reward) return
 
-    setPendingApprovals([
-      ...pendingApprovals,
-      {
-        id: Date.now(),
-        rewardId,
-        rewardName: reward.name,
-        icon: reward.icon,
-        quantity: Number(quantity),
-        reason,
-        date: today,
-      },
-    ])
+    const cleanQuantity = Number(quantity)
+    const cleanReason = reason || 'No reason given, but probably adorable.'
 
+    const { data: request, error: requestError } = await supabase
+      .from('reward_requests')
+      .insert({
+        reward_type_id: rewardId,
+        quantity: cleanQuantity,
+        reason: cleanReason,
+        status: 'pending',
+        created_by: 'shane',
+      })
+      .select()
+      .single()
+
+    if (requestError) {
+      console.error('Error submitting reward request:', requestError)
+      alert('Could not submit request.')
+      return
+    }
+
+    const { error: ledgerError } = await supabase
+      .from('ledger_entries')
+      .insert({
+        entry_type: 'request_submitted',
+        reward_type_id: rewardId,
+        quantity: cleanQuantity,
+        balance_delta: 0,
+        related_request_id: request.id,
+        note: cleanReason,
+        actor: 'shane',
+      })
+
+    if (ledgerError) {
+      console.error('Error creating request ledger entry:', ledgerError)
+      alert('Request was saved, but history was not updated.')
+    }
+
+    await loadBankData()
     setActiveTab('home')
   }
 
-  function approveRequest(request) {
-    setRewards(
-      rewards.map((reward) =>
-        reward.id === request.rewardId
-          ? { ...reward, balance: reward.balance + request.quantity }
-          : reward
-      )
-    )
+  async function approveRequest(request) {
+    const { error: updateError } = await supabase
+      .from('reward_requests')
+      .update({
+        status: 'approved',
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: 'rohan',
+      })
+      .eq('id', request.id)
 
-    setPendingApprovals(pendingApprovals.filter((item) => item.id !== request.id))
+    if (updateError) {
+      console.error('Error approving request:', updateError)
+      alert('Could not approve request.')
+      return
+    }
 
-    setHistory([
-      ...history,
-      {
-        id: Date.now(),
-        type: 'approved',
-        rewardName: request.rewardName,
-        icon: request.icon,
+    const { error: ledgerError } = await supabase
+      .from('ledger_entries')
+      .insert({
+        entry_type: 'request_approved',
+        reward_type_id: request.rewardId,
         quantity: request.quantity,
-        date: today,
-        actor: 'Rohan',
+        balance_delta: request.quantity,
+        related_request_id: request.id,
         note: request.reason,
-      },
-    ])
+        actor: 'rohan',
+      })
+
+    if (ledgerError) {
+      console.error('Error creating approval ledger entry:', ledgerError)
+      alert('Request was approved, but history/balance was not updated.')
+      return
+    }
+
+    await loadBankData()
   }
 
-  function denyRequest(request) {
-    setPendingApprovals(pendingApprovals.filter((item) => item.id !== request.id))
+  async function denyRequest(request) {
+    const { error: updateError } = await supabase
+      .from('reward_requests')
+      .update({
+        status: 'denied',
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: 'rohan',
+      })
+      .eq('id', request.id)
 
-    setHistory([
-      ...history,
-      {
-        id: Date.now(),
-        type: 'denied',
-        rewardName: request.rewardName,
-        icon: request.icon,
+    if (updateError) {
+      console.error('Error denying request:', updateError)
+      alert('Could not deny request.')
+      return
+    }
+
+    const { error: ledgerError } = await supabase
+      .from('ledger_entries')
+      .insert({
+        entry_type: 'request_denied',
+        reward_type_id: request.rewardId,
         quantity: request.quantity,
-        date: today,
-        actor: 'Rohan',
+        balance_delta: 0,
+        related_request_id: request.id,
         note: request.reason,
-      },
-    ])
+        actor: 'rohan',
+      })
+
+    if (ledgerError) {
+      console.error('Error creating denial ledger entry:', ledgerError)
+      alert('Request was denied, but history was not updated.')
+    }
+
+    await loadBankData()
   }
 
-  function addPendingDelivery(rewardId, quantity) {
+  async function addPendingDelivery(rewardId, quantity) {
     const reward = rewards.find((item) => item.id === rewardId)
+    if (!reward) return
 
-    setPendingDeliveries([
-      ...pendingDeliveries,
-      {
-        id: Date.now(),
-        rewardId,
-        rewardName: reward.name,
-        icon: reward.icon,
-        quantity: Number(quantity),
-        date: today,
-      },
-    ])
+    const cleanQuantity = Number(quantity)
 
+    if (cleanQuantity > reward.balance) {
+      alert(`Only ${reward.balance} ${reward.name} available to redeem.`)
+      return
+    }
+
+    const { data: request, error: requestError } = await supabase
+      .from('redemption_requests')
+      .insert({
+        reward_type_id: rewardId,
+        quantity: cleanQuantity,
+        note: 'Redemption requested by Shane.',
+        status: 'pending',
+        created_by: 'shane',
+      })
+      .select()
+      .single()
+
+    if (requestError) {
+      console.error('Error submitting redemption request:', requestError)
+      alert('Could not redeem reward.')
+      return
+    }
+
+    const { error: ledgerError } = await supabase
+      .from('ledger_entries')
+      .insert({
+        entry_type: 'redemption_requested',
+        reward_type_id: rewardId,
+        quantity: cleanQuantity,
+        balance_delta: 0,
+        related_request_id: request.id,
+        note: 'Redemption requested by Shane.',
+        actor: 'shane',
+      })
+
+    if (ledgerError) {
+      console.error('Error creating redemption ledger entry:', ledgerError)
+      alert('Redemption was saved, but history was not updated.')
+    }
+
+    await loadBankData()
     setActiveTab('home')
   }
 
-  function markDelivered(request, note = 'Reward delivered with love.') {
-    setRewards(
-      rewards.map((reward) =>
-        reward.id === request.rewardId
-          ? { ...reward, balance: Math.max(0, reward.balance - request.quantity) }
-          : reward
-      )
-    )
+  async function markDelivered(request, note = 'Reward delivered with love.') {
+    const { error: updateError } = await supabase
+      .from('redemption_requests')
+      .update({
+        status: 'delivered',
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: 'rohan',
+      })
+      .eq('id', request.id)
 
-    setPendingDeliveries(pendingDeliveries.filter((item) => item.id !== request.id))
+    if (updateError) {
+      console.error('Error marking delivered:', updateError)
+      alert('Could not mark reward delivered.')
+      return
+    }
 
-    setHistory([
-      ...history,
-      {
-        id: Date.now(),
-        type: 'delivered',
-        rewardName: request.rewardName,
-        icon: request.icon,
+    const { error: ledgerError } = await supabase
+      .from('ledger_entries')
+      .insert({
+        entry_type: 'reward_delivered',
+        reward_type_id: request.rewardId,
         quantity: request.quantity,
-        date: today,
-        actor: 'Rohan',
+        balance_delta: -request.quantity,
+        related_request_id: request.id,
         note,
-      },
-    ])
+        actor: 'rohan',
+      })
+
+    if (ledgerError) {
+      console.error('Error creating delivery ledger entry:', ledgerError)
+      alert('Reward was marked delivered, but balance/history was not updated.')
+      return
+    }
+
+    await loadBankData()
   }
 
-  function addReward(icon, name, balance) {
+  async function addReward(icon, name, balance) {
+    const { data, error } = await supabase
+      .from('reward_types')
+      .insert({
+        name,
+        emoji: icon,
+        active: true,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Error adding reward:', error)
+      alert('Could not save reward.')
+      return
+    }
+
     setRewards([
       ...rewards,
       {
-        id: `${name.toLowerCase().replaceAll(' ', '-')}-${Date.now()}`,
-        icon,
-        name,
-        balance: Number(balance),
+        id: data.id,
+        icon: data.emoji,
+        name: data.name,
+        balance: 0,
       },
     ])
   }
@@ -253,7 +430,9 @@ function App() {
     <main className={`app ${userType === 'admin' ? 'admin-app' : ''}`}>
       <AppHeader userType={userType} onLogout={handleLogout} />
 
-      {activeTab === 'home' && (
+      {isLoading && <div className="empty-state">Loading Googly Bank...</div>}
+
+      {!isLoading && activeTab === 'home' && (
         <Home
           rewards={rewards}
           pendingApprovals={pendingApprovals}
@@ -262,15 +441,15 @@ function App() {
         />
       )}
 
-      {activeTab === 'request' && (
+      {!isLoading && activeTab === 'request' && (
         <RequestReward rewards={rewards} onSubmit={addPendingApproval} />
       )}
 
-      {activeTab === 'redeem' && (
+      {!isLoading && activeTab === 'redeem' && (
         <RedeemReward rewards={rewards} onSubmit={addPendingDelivery} />
       )}
 
-      {activeTab === 'history' && (
+      {!isLoading && activeTab === 'history' && (
         <History
           history={history}
           historyMonth={historyMonth}
@@ -278,7 +457,7 @@ function App() {
         />
       )}
 
-      {activeTab === 'admin' && (
+      {!isLoading && activeTab === 'admin' && (
         <AdminDesk
           pendingApprovals={pendingApprovals}
           pendingDeliveries={pendingDeliveries}
@@ -330,7 +509,7 @@ function Home({ rewards, pendingApprovals, pendingDeliveries, setActiveTab }) {
       </section>
 
       <div className="balance-card">
-        <div className="section-label">You have</div>
+        <div className="section-label">Available balance</div>
 
         <div className="reward-list">
           {rewards.map((reward) => (
@@ -398,38 +577,10 @@ function PendingDetails({ items, empty }) {
         <div className="pending-detail-row" key={item.id}>
           <strong>{item.icon} {item.rewardName} × {item.quantity}</strong>
           {item.reason && <p>“{item.reason}”</p>}
+          {item.note && <p>“{item.note}”</p>}
         </div>
       ))}
     </div>
-  )
-}
-
-function RecentActivity({ approvals, deliveries }) {
-  const latest = [...approvals, ...deliveries].slice(-2).reverse()
-
-  return (
-    <section className="recent-activity">
-      <div className="mini-section-header">
-        <h2>Recent Activity</h2>
-        <button className="text-button">View all</button>
-      </div>
-
-      {latest.length === 0 ? (
-        <div className="activity-card muted-card">
-          <p>No new activity yet.</p>
-        </div>
-      ) : (
-        latest.map((item) => (
-          <div className="activity-card" key={item.id}>
-            <div>
-              <strong>{item.icon} Requested: {item.rewardName} × {item.quantity}</strong>
-              {item.reason && <p>“{item.reason}”</p>}
-            </div>
-            <span>{formatShortDate(item.date)}</span>
-          </div>
-        ))
-      )}
-    </section>
   )
 }
 
@@ -438,8 +589,15 @@ function RequestReward({ rewards, onSubmit }) {
   const [quantity, setQuantity] = useState(1)
   const [reason, setReason] = useState('')
 
+  useEffect(() => {
+    if (!rewardId && rewards.length > 0) {
+      setRewardId(rewards[0].id)
+    }
+  }, [rewardId, rewards])
+
   function handleSubmit(event) {
     event.preventDefault()
+    if (!rewardId) return
     onSubmit(rewardId, quantity, reason || 'No reason given, but probably adorable.')
     setQuantity(1)
     setReason('')
@@ -523,6 +681,7 @@ function RedeemReward({ rewards, onSubmit }) {
     </section>
   )
 }
+
 function AdminDesk({ pendingApprovals, pendingDeliveries, onApprove, onDeny, onDelivered, onAddReward }) {
   const [adminView, setAdminView] = useState('requests')
   const [newIcon, setNewIcon] = useState('💖')
@@ -708,11 +867,28 @@ function formatShortDate(dateString) {
   })
 }
 
+function mapLedgerTypeToHistoryType(entryType) {
+  if (entryType === 'request_approved') return 'approved'
+  if (entryType === 'request_denied') return 'denied'
+  if (entryType === 'reward_delivered') return 'delivered'
+  if (entryType === 'redemption_denied') return 'denied'
+  if (entryType === 'redemption_requested') return 'requested'
+  return 'submitted'
+}
+
 function historyVerb(type) {
   if (type === 'approved') return 'Approved'
   if (type === 'delivered') return 'Rewarded'
   if (type === 'denied') return 'Denied'
+  if (type === 'requested') return 'Requested'
+  if (type === 'submitted') return 'Submitted'
   return 'Updated'
+}
+
+function formatActor(actor) {
+  if (actor === 'rohan') return 'Rohan'
+  if (actor === 'shane') return 'Shane'
+  return actor || 'Rohan'
 }
 
 export default App

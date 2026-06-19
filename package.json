@@ -5,6 +5,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
     "react": "latest",
     "react-dom": "latest"
   },
