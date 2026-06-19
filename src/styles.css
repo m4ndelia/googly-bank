@@ -571,3 +571,52 @@ blockquote {
     padding-right: 14px;
   }
 }
+
+.hero-copy p {
+  font-family: "Playfair Display", serif;
+  font-style: italic;
+  font-size: 1.2rem;
+  color: var(--burgundy);
+}
+
+.pending-pill {
+  width: 100%;
+  color: var(--charcoal);
+  background: rgba(255, 252, 247, 0.72);
+  box-shadow: none;
+  text-align: left;
+}
+
+.pending-details {
+  margin-top: -4px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 252, 247, 0.62);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+}
+
+.pending-detail-row {
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.pending-detail-row p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.empty-mini {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.available-copy {
+  font-family: "Playfair Display", serif;
+  font-style: italic;
+  color: var(--burgundy) !important;
+  font-size: 1rem !important;
+}

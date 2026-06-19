@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './styles.css'
 
 const SHANE_PIN = '4522'
 const ADMIN_PIN = '2205'
-const APP_VERSION = 'v0.4'
+const APP_VERSION = 'v0.5'
 
 const today = '2026-06-19'
 
@@ -67,6 +67,10 @@ function App() {
   const [pendingDeliveries, setPendingDeliveries] = useState([])
   const [history, setHistory] = useState(startingHistory)
   const [historyMonth, setHistoryMonth] = useState('2026-06')
+
+  useEffect(() => {
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+}, [activeTab, userType])
 
   function handleLogin(event) {
     event.preventDefault()
@@ -216,7 +220,7 @@ function App() {
     return (
       <main className="app login-screen">
         <section className="login-card">
-          <img className="login-heart" src="./googly-heart-semi-3d.png" alt="Googly Bank heart" />
+          <img className="login-heart" src="/googly-heart-semi-3d.png" alt="Googly Bank heart" />
 
           <div className="brand-lockup login-brand">
             <h1>Googly Bank</h1>
@@ -294,21 +298,31 @@ function AppHeader({ userType, onLogout }) {
   return (
     <header className="app-header">
       <div className="header-brand">
-        <img className="header-heart" src="./googly-heart-semi-3d.png" alt="" />
+        <img className="header-heart" src="/googly-heart-semi-3d.png" alt="" />
         <div>
           <p className="eyebrow">{userType === 'admin' ? 'Admin' : 'Googly Bank'}</p>
-          <h1>{userType === 'admin' ? 'Action Center' : 'Good evening, Googs ❤️'}</h1>
+          <h1>{userType === 'admin' ? 'Action Center' : `${getGreeting()}, Googs ❤️`}</h1>
         </div>
       </div>
 
       <button className="icon-button" onClick={onLogout} aria-label="Log out">
-        ⌁
+        ↩
       </button>
     </header>
   )
 }
 
+function getGreeting() {
+  const hour = new Date().getHours()
+
+  if (hour < 12) return 'Good morning'
+  if (hour < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
 function Home({ rewards, pendingApprovals, pendingDeliveries, setActiveTab }) {
+  const [expandedPending, setExpandedPending] = useState(null)
+
   return (
     <section className="screen">
       <section className="hero-copy">
@@ -335,29 +349,57 @@ function Home({ rewards, pendingApprovals, pendingDeliveries, setActiveTab }) {
         <PendingPill
           icon="⏳"
           label={`${pendingApprovals.length} request${pendingApprovals.length === 1 ? '' : 's'} awaiting approval`}
+          isOpen={expandedPending === 'approvals'}
+          onClick={() => setExpandedPending(expandedPending === 'approvals' ? null : 'approvals')}
         />
+
+        {expandedPending === 'approvals' && (
+          <PendingDetails items={pendingApprovals} empty="No reward requests pending." />
+        )}
+
         <PendingPill
           icon="🎁"
           label={`${pendingDeliveries.length} reward${pendingDeliveries.length === 1 ? '' : 's'} awaiting delivery`}
+          isOpen={expandedPending === 'deliveries'}
+          onClick={() => setExpandedPending(expandedPending === 'deliveries' ? null : 'deliveries')}
         />
+
+        {expandedPending === 'deliveries' && (
+          <PendingDetails items={pendingDeliveries} empty="No redemptions pending." />
+        )}
       </div>
 
       <div className="home-actions">
         <button onClick={() => setActiveTab('request')}>Request Something <span>›</span></button>
         <button className="outline-button" onClick={() => setActiveTab('redeem')}>Redeem a Reward <span>›</span></button>
       </div>
-
-      <RecentActivity approvals={pendingApprovals} deliveries={pendingDeliveries} />
     </section>
   )
 }
 
-function PendingPill({ icon, label }) {
+function PendingPill({ icon, label, isOpen, onClick }) {
   return (
-    <div className="pending-pill">
+    <button className="pending-pill" onClick={onClick}>
       <span>{icon}</span>
       <strong>{label}</strong>
-      <span className="chevron">›</span>
+      <span className="chevron">{isOpen ? '⌃' : '›'}</span>
+    </button>
+  )
+}
+
+function PendingDetails({ items, empty }) {
+  if (items.length === 0) {
+    return <div className="pending-details empty-mini">{empty}</div>
+  }
+
+  return (
+    <div className="pending-details">
+      {items.map((item) => (
+        <div className="pending-detail-row" key={item.id}>
+          <strong>{item.icon} {item.rewardName} × {item.quantity}</strong>
+          {item.reason && <p>“{item.reason}”</p>}
+        </div>
+      ))}
     </div>
   )
 }
@@ -471,10 +513,9 @@ function RedeemReward({ rewards, onSubmit }) {
               <div className="redeem-icon">{reward.icon}</div>
               <div className="redeem-info">
                 <h2>{reward.name}</h2>
-                <p>Available</p>
+                <p className="available-copy">Available: {reward.balance}</p>
                 <button onClick={() => handleRedeem(reward.id)}>Redeem</button>
               </div>
-              <strong>{reward.balance}</strong>
             </article>
           ))}
         </div>
