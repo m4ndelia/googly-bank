@@ -216,7 +216,7 @@ function App() {
     return (
       <main className="app login-screen">
         <section className="login-card">
-          <img className="login-heart" src="/googly-heart-semi-3d.png" alt="Googly Bank heart" />
+          <img className="login-heart" src="./googly-heart-semi-3d.png" alt="Googly Bank heart" />
 
           <div className="brand-lockup login-brand">
             <h1>Googly Bank</h1>
@@ -294,7 +294,7 @@ function AppHeader({ userType, onLogout }) {
   return (
     <header className="app-header">
       <div className="header-brand">
-        <img className="header-heart" src="/googly-heart-semi-3d.png" alt="" />
+        <img className="header-heart" src="./googly-heart-semi-3d.png" alt="" />
         <div>
           <p className="eyebrow">{userType === 'admin' ? 'Admin' : 'Googly Bank'}</p>
           <h1>{userType === 'admin' ? 'Action Center' : 'Good evening, Googs ❤️'}</h1>
