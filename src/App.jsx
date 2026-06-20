@@ -12,7 +12,7 @@ import {
 
 const SHANE_PIN = '4522'
 const ADMIN_PIN = '2205'
-const APP_VERSION = 'v0.7'
+const APP_VERSION = 'v1.0'
 
 function getTodayString() {
   return new Date().toISOString().slice(0, 10)
